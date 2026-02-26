@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, type Variants } from 'framer-motion';
-import { Factory, Thermometer, Zap, Layers, Shield } from 'lucide-react';
+import { Factory, Disc, Zap, Scissors, Layers, Waves } from 'lucide-react';
 
 const PROCESS_LAYERS = [
   { name: 'Passivation (SiN₄)',    color: '#374151', stroke: '#6b7280', description: 'Protective cap layer — prevents oxidation and mechanical damage' },
@@ -16,10 +16,12 @@ const PROCESS_LAYERS = [
 ];
 
 const PROCESS_STEPS = [
-  { icon: Thermometer, label: 'Thermal Oxidation', desc: 'Grow gate oxide at 900°C in O₂ environment' },
-  { icon: Zap, label: 'Ion Implantation', desc: 'Dope N-well and source/drain regions' },
-  { icon: Layers, label: 'Deposition (CVD)', desc: 'Deposit polysilicon gate and metal layers' },
-  { icon: Shield, label: 'Lithography (EUV)', desc: 'Pattern layers using 13.5nm EUV light' },
+  { icon: Disc, label: 'Wafer Preparation', desc: 'Starting material: 300mm ultra-pure Silicon wafer' },
+  { icon: Zap, label: 'Photolithography', desc: 'Patterning using UV light and photoresist' },
+  { icon: Scissors, label: 'Etching', desc: 'Selective removal of material to define features' },
+  { icon: Zap, label: 'Ion Implantation', desc: 'Doping regions to create P/N junctions' },
+  { icon: Layers, label: 'Deposition', desc: 'Adding layers of metal, oxide, or polysilicon' },
+  { icon: Waves, label: 'CMP', desc: 'Chemical Mechanical Polishing — flattening the surface' },
 ];
 
 const containerVariants = {
@@ -84,7 +86,7 @@ export function FabricationPhase() {
         <div className="flex flex-col gap-2">
           <span className="text-zinc-500 text-xs font-mono uppercase tracking-widest mb-1">Key Process Steps</span>
           <motion.div
-            className="flex flex-col gap-3"
+            className="flex flex-col gap-2.5"
             variants={containerVariants}
             initial="hidden"
             animate="visible"
@@ -93,14 +95,14 @@ export function FabricationPhase() {
               <motion.div
                 key={label}
                 variants={stepVariants}
-                className="flex gap-3 p-3 rounded-md border border-zinc-800 bg-zinc-900/50"
+                className="flex gap-3 p-2 rounded-md border border-zinc-800 bg-zinc-900/50"
               >
-                <div className="flex items-center justify-center w-8 h-8 rounded bg-zinc-800 shrink-0">
-                  <Icon className="w-4 h-4 text-cyan-400" />
+                <div className="flex items-center justify-center w-7 h-7 rounded bg-zinc-800 shrink-0">
+                  <Icon className="w-3.5 h-3.5 text-cyan-400" />
                 </div>
-                <div>
-                  <div className="text-zinc-300 text-xs font-semibold font-mono mb-0.5">{label}</div>
-                  <div className="text-zinc-500 text-xs">{desc}</div>
+                <div className="min-w-0">
+                  <div className="text-zinc-300 text-[11px] font-semibold font-mono leading-tight mb-0.5">{label}</div>
+                  <div className="text-zinc-500 text-[10px] leading-tight">{desc}</div>
                 </div>
               </motion.div>
             ))}
