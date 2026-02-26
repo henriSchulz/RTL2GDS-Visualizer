@@ -1,29 +1,24 @@
 import type { Gate, GateType, Netlist } from '@/types/silicon';
 
-export const DEFAULT_VERILOG = `module ripple_carry_adder(
-  input  [3:0] A,
-  input  [3:0] B,
-  input        Cin,
-  output [3:0] Sum,
-  output       Cout
+export const DEFAULT_VERILOG = `module alu_slice(
+  input  A, B, Cin, Sel,
+  output Sum, Cout
 );
-  wire c0, c1, c2;
+  wire w1, w2, w3;
 
-  // Full adder bit 0
-  assign Sum[0] = A[0] ^ B[0] ^ Cin;
-  assign c0     = (A[0] & B[0]) | (B[0] & Cin) | (A[0] & Cin);
+  // Mixed gate-level and library instantiations
+  assign w1 = A ^ B;
 
-  // Full adder bit 1
-  assign Sum[1] = A[1] ^ B[1] ^ c0;
-  assign c1     = (A[1] & B[1]) | (B[1] & c0) | (A[1] & c0);
+  // Library Cell AOI21
+  AOI21 u1 (.A1(A), .A2(B), .B(Cin), .Y(w2));
 
-  // Full adder bit 2
-  assign Sum[2] = A[2] ^ B[2] ^ c1;
-  assign c2     = (A[2] & B[2]) | (B[2] & c1) | (A[2] & c1);
+  // Library Cell MUX
+  MUX  u2 (.S(Sel), .A(w1), .B(w2), .Y(Sum));
 
-  // Full adder bit 3
-  assign Sum[3] = A[3] ^ B[3] ^ c2;
-  assign Cout   = (A[3] & B[3]) | (B[3] & c2) | (A[3] & c2);
+  // Logic for Cout
+  assign w3 = A & B;
+  assign Cout = w3 | (w1 & Cin);
+
 endmodule`;
 
 // ─── Tokenizer ────────────────────────────────────────────────────────────────
@@ -86,13 +81,13 @@ function parseExpr(
     if (tok.kind === 'PLUS') {
       // Half-adder expansion for single-bit: a + b → AND (carry) + XOR (sum)
       const carryNet = `_carry${counter.n}`;
-      gates.push({ id: `g${counter.n++}`, type: 'AND', inputs: [lhsNet, rhsNet], output: carryNet });
+      gates.push({ id: `g${counter.n++}`, type: 'AND', inputs: [lhsNet, rhsNet], output: carryNet, module: 'Arithmetic' });
       const sumNet = `_n${counter.n}`;
-      gates.push({ id: `g${counter.n++}`, type: 'XOR', inputs: [lhsNet, rhsNet], output: sumNet });
+      gates.push({ id: `g${counter.n++}`, type: 'XOR', inputs: [lhsNet, rhsNet], output: sumNet, module: 'Arithmetic' });
       lhsNet = sumNet;
     } else {
       const outNet = `_n${counter.n}`;
-      gates.push({ id: `g${counter.n++}`, type: opToGateType(tok.kind), inputs: [lhsNet, rhsNet], output: outNet });
+      gates.push({ id: `g${counter.n++}`, type: opToGateType(tok.kind), inputs: [lhsNet, rhsNet], output: outNet, module: 'GlueLogic' });
       lhsNet = outNet;
     }
   }
@@ -109,7 +104,7 @@ function parseUnary(
     pos.i++;
     const operandNet = parseUnary(tokens, pos, gates, counter);
     const outNet = `_n${counter.n}`;
-    gates.push({ id: `g${counter.n++}`, type: 'NOT', inputs: [operandNet], output: outNet });
+      gates.push({ id: `g${counter.n++}`, type: 'NOT', inputs: [operandNet], output: outNet, module: 'GlueLogic' });
     return outNet;
   }
   return parsePrimary(tokens, pos, gates, counter);
@@ -170,24 +165,24 @@ function expandRippleCarryAdder(
     if (i === 0) {
       // Half adder for LSB
       const carryOut = `_hc0`;
-      gates.push({ id: `g${counter.n++}`, type: 'XOR', inputs: [a, b], output: sumOut });
-      gates.push({ id: `g${counter.n++}`, type: 'AND', inputs: [a, b], output: carryOut });
+      gates.push({ id: `g${counter.n++}`, type: 'XOR', inputs: [a, b], output: sumOut, module: 'Adder' });
+      gates.push({ id: `g${counter.n++}`, type: 'AND', inputs: [a, b], output: carryOut, module: 'Adder' });
       carryIn = carryOut;
     } else {
       // Full adder for bits 1..N-1
       const xor1Out = `_x${i}_${counter.n}`;
-      gates.push({ id: `g${counter.n++}`, type: 'XOR', inputs: [a, b], output: xor1Out });
+      gates.push({ id: `g${counter.n++}`, type: 'XOR', inputs: [a, b], output: xor1Out, module: 'Adder' });
 
-      gates.push({ id: `g${counter.n++}`, type: 'XOR', inputs: [xor1Out, carryIn!], output: sumOut });
+      gates.push({ id: `g${counter.n++}`, type: 'XOR', inputs: [xor1Out, carryIn!], output: sumOut, module: 'Adder' });
 
       const and1Out = `_fa${i}a_${counter.n}`;
-      gates.push({ id: `g${counter.n++}`, type: 'AND', inputs: [a, b], output: and1Out });
+      gates.push({ id: `g${counter.n++}`, type: 'AND', inputs: [a, b], output: and1Out, module: 'Adder' });
 
       const and2Out = `_fa${i}b_${counter.n}`;
-      gates.push({ id: `g${counter.n++}`, type: 'AND', inputs: [xor1Out, carryIn!], output: and2Out });
+      gates.push({ id: `g${counter.n++}`, type: 'AND', inputs: [xor1Out, carryIn!], output: and2Out, module: 'Adder' });
 
       const carryOut = i === width - 1 ? `_cout` : `_c${i}`;
-      gates.push({ id: `g${counter.n++}`, type: 'OR', inputs: [and1Out, and2Out], output: carryOut });
+      gates.push({ id: `g${counter.n++}`, type: 'OR', inputs: [and1Out, and2Out], output: carryOut, module: 'Adder' });
       carryIn = carryOut;
     }
   }
@@ -236,6 +231,43 @@ export function parseVerilog(code: string): { netlist: Netlist; error: string | 
     const [, dir, name] = m;
     if (name !== 'reg' && name !== 'wire') {
       (dir === 'input' ? inputs : outputs).add(name);
+    }
+  }
+
+  // ── Cell Instantiations ──
+  // Matches: AOI22 u1 (.A1(a), .Y(y));
+  const instRe = /\b(\w+)\s+(\w+)\s*\(([\s\S]+?)\)\s*;/g;
+  const keywords = new Set(['module', 'input', 'output', 'wire', 'reg', 'assign', 'begin', 'end', 'endmodule']);
+
+  for (const m of clean.matchAll(instRe)) {
+    const [full, type, id, portMapStr] = m;
+    if (keywords.has(type)) continue;
+
+    const portMap: Record<string, string> = {};
+    const portRe = /\.([\w\d]+)\s*\(([\w\d\[\]]+)\)/g;
+    for (const pm of portMapStr.matchAll(portRe)) {
+      portMap[pm[1]] = pm[2];
+    }
+
+    // Heuristic: pins starting with Y, Q, out, Sum, Cout are outputs
+    const outputPin = Object.keys(portMap).find(p =>
+      /^(Y|Q|out|Sum|Cout)/i.test(p)
+    ) || 'Y';
+
+    const output = portMap[outputPin];
+    const gateInputs = Object.keys(portMap)
+      .filter(p => p !== outputPin)
+      .map(p => portMap[p]);
+
+    if (output) {
+      gates.push({
+        id,
+        type: type as GateType,
+        inputs: gateInputs,
+        output,
+        // For partitioning, we can use a simple heuristic or look for module markers
+        module: type.startsWith('AOI') || type.startsWith('NAND') || type.startsWith('NOR') ? 'Library' : 'SubModule'
+      });
     }
   }
 
@@ -288,7 +320,7 @@ export function parseVerilog(code: string): { netlist: Netlist; error: string | 
 
     if (gates.length === startGateCount) {
       // Identity/buffer: assign wire = net;
-      gates.push({ id: `g${counter.n++}`, type: 'BUF', inputs: [resultNet], output: lhs });
+      gates.push({ id: `g${counter.n++}`, type: 'BUF', inputs: [resultNet], output: lhs, module: 'GlueLogic' });
     } else {
       // Rename the last synthesised net to the lhs name
       gates[gates.length - 1].output = lhs;

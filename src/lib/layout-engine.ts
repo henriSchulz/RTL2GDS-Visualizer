@@ -174,13 +174,21 @@ export interface SVGLayoutItem {
   row: number;
   x: number;
   y: number;
+  module?: string;
 }
 
 export interface SVGLayoutData {
   items: SVGLayoutItem[];
-  edges: Array<{ id: string; sourceId: string; targetId: string; netName: string }>;
+  edges: Array<{
+    id: string;
+    sourceId: string;
+    targetId: string;
+    netName: string;
+    path?: Array<{ x: number; y: number; layer: 'M1' | 'M2' }>;
+  }>;
   viewWidth: number;
   viewHeight: number;
+  modules?: Array<{ id: string; name: string; x: number; y: number; width: number; height: number; color: string }>;
 }
 
 function buildDepthMap(netlist: Netlist): Map<string, number> {
@@ -235,6 +243,7 @@ export function computeSVGLayout(netlist: Netlist): SVGLayoutData {
       id: gate.id, kind: 'gate', label: gate.type, gateType: gate.type,
       inputCount: gate.inputs.length,
       col, row: 0, x: 0, y: 0,
+      module: gate.module || 'Logic'
     });
   }
 
@@ -301,17 +310,92 @@ export function computeSVGLayout(netlist: Netlist): SVGLayoutData {
         ? `port-in-${sanitizeId(inputNet)}`
         : (outputNetMap.get(inputNet)?.id ?? null);
       if (!srcId) continue;
-      svgEdges.push({ id: `e-${srcId}-${gate.id}-${inputNet}`, sourceId: srcId, targetId: gate.id, netName: inputNet });
+
+      const src = itemMap.get(srcId);
+      const dst = itemMap.get(gate.id);
+      let path: SVGLayoutData['edges'][0]['path'] = undefined;
+
+      if (src && dst) {
+        const x1 = src.x + 50;
+        const y1 = src.y;
+        const x2 = dst.x - 50;
+        const y2 = dst.y;
+        const midX = (x1 + x2) / 2;
+        path = [
+          { x: x1, y: y1, layer: 'M1' },
+          { x: midX, y: y1, layer: 'M1' },
+          { x: midX, y: y2, layer: 'M2' },
+          { x: x2, y: y2, layer: 'M1' },
+        ];
+      }
+
+      svgEdges.push({
+        id: `e-${srcId}-${gate.id}-${inputNet}`,
+        sourceId: srcId,
+        targetId: gate.id,
+        netName: inputNet,
+        path
+      });
     }
   }
   for (const outNet of netlist.outputs) {
     const srcGate = outputNetMap.get(outNet);
     if (!srcGate) continue;
-    svgEdges.push({ id: `e-${srcGate.id}-out-${sanitizeId(outNet)}`, sourceId: srcGate.id, targetId: `port-out-${sanitizeId(outNet)}`, netName: outNet });
+
+    const src = itemMap.get(srcGate.id);
+    const dstId = `port-out-${sanitizeId(outNet)}`;
+    const dst = itemMap.get(dstId);
+    let path: SVGLayoutData['edges'][0]['path'] = undefined;
+
+    if (src && dst) {
+      const x1 = src.x + 50;
+      const y1 = src.y;
+      const x2 = dst.x - 50;
+      const y2 = dst.y;
+      const midX = (x1 + x2) / 2;
+      path = [
+        { x: x1, y: y1, layer: 'M1' },
+        { x: midX, y: y1, layer: 'M1' },
+        { x: midX, y: y2, layer: 'M2' },
+        { x: x2, y: y2, layer: 'M1' },
+      ];
+    }
+
+    svgEdges.push({
+      id: `e-${srcGate.id}-out-${sanitizeId(outNet)}`,
+      sourceId: srcGate.id,
+      targetId: dstId,
+      netName: outNet,
+      path
+    });
   }
 
   const viewWidth = MARGIN * 2 + totalCols * COL_GAP + 80;
   const viewHeight = MARGIN * 2 + maxRows * ROW_GAP + 48;
 
-  return { items: Array.from(itemMap.values()), edges: svgEdges, viewWidth, viewHeight };
+  // ── Build Module Clusters (Partitioning) ──
+  const moduleClusters = new Map<string, { x1: number; y1: number; x2: number; y2: number }>();
+  for (const item of itemMap.values()) {
+    if (item.kind !== 'gate') continue;
+    const mod = item.module || 'Default';
+    const current = moduleClusters.get(mod) || { x1: Infinity, y1: Infinity, x2: -Infinity, y2: -Infinity };
+    moduleClusters.set(mod, {
+      x1: Math.min(current.x1, item.x - 50),
+      y1: Math.min(current.y1, item.y - 30),
+      x2: Math.max(current.x2, item.x + 50),
+      y2: Math.max(current.y2, item.y + 30),
+    });
+  }
+
+  const svgModules: SVGLayoutData['modules'] = Array.from(moduleClusters.entries()).map(([name, bounds], i) => ({
+    id: `mod-${name}`,
+    name,
+    x: bounds.x1,
+    y: bounds.y1,
+    width: bounds.x2 - bounds.x1,
+    height: bounds.y2 - bounds.y1,
+    color: `hsl(${i * 137.5 % 360}, 60%, 40%)`
+  }));
+
+  return { items: Array.from(itemMap.values()), edges: svgEdges, viewWidth, viewHeight, modules: svgModules };
 }
